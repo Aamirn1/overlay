@@ -24,7 +24,11 @@ import com.poolaim.overlay.view.AimOverlayView
 import com.poolaim.overlay.view.MarkerOverlayView
 
 /**
- * Robust Overlay Service with Absolute Zero-Block Passthrough and Orientation Sync.
+ * FINAL DEFINITIVE REFACOR:
+ * 1. Alpha < 0.8 for Android 12+ touch passthrough.
+ * 2. Dedicated "Move" icon for easy dragging.
+ * 3. Dedicated "Close" icon for stopping service.
+ * 4. Orientation-aware auto-resizing.
  */
 class OverlayService : Service() {
 
@@ -60,7 +64,6 @@ class OverlayService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
         
-        // Window Hierarchy: Bottom-most renders first
         createAimOverlay()
         createSetupHandles()
         createMarkers()
@@ -70,18 +73,21 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_TOGGLE -> toggleAim()
-            ACTION_STOP -> { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+            ACTION_STOP -> exitService()
         }
         return START_STICKY
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Re-calculate and refresh all overlays for new orientation (Landscape/Portrait)
         refreshOverlayLayouts()
     }
 
     override fun onDestroy() { removeAllOverlays(); super.onDestroy() }
+
+    private fun exitService() {
+        stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+    }
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(CHANNEL_ID, getString(R.string.channel_name), NotificationManager.IMPORTANCE_LOW).apply {
@@ -114,37 +120,46 @@ class OverlayService : Service() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setBackgroundColor(0xEE1A1A2E.toInt())
-            setPadding(12, 8, 12, 8); elevation = 50f
+            setPadding(16, 8, 16, 8); elevation = 60f
         }
         
-        // 1. Move/Drag Handle Icon (Crucial for Moveability)
+        // 1. DRAG HANDLE (For moving the bar)
         val dragHandle = ImageView(this).apply {
-            setImageResource(android.R.drawable.ic_menu_sort_by_size) // Grid/Sort icon as drag handle
-            setPadding(16, 16, 16, 16); setColorFilter(0xFFAAAAAA.toInt())
+            setImageResource(android.R.drawable.ic_menu_sort_by_size)
+            setPadding(12, 12, 12, 12); setColorFilter(0xFFCCCCCC.toInt())
         }
         
+        // 2. AIM TOGGLE
         val btnAim = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_compass)
-            setBackgroundColor(0x00000000); setPadding(16, 16, 16, 16)
+            setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
             setColorFilter(0xFF00E5FF.toInt()); setOnClickListener { toggleAim() }
         }
         
+        // 3. SETUP TOGGLE
         val btnSetup = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_manage)
-            setBackgroundColor(0x00000000); setPadding(16, 16, 16, 16)
+            setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
             setColorFilter(0xFFFFD740.toInt()); setOnClickListener { toggleSetup() }
         }
+
+        // 4. STOP BUTTON (As requested by user)
+        val btnClose = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+            setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
+            setColorFilter(0xFFFF5252.toInt()); setOnClickListener { exitService() }
+        }
         
-        bar.addView(dragHandle); bar.addView(btnAim); bar.addView(btnSetup)
+        bar.addView(dragHandle); bar.addView(btnAim); bar.addView(btnSetup); bar.addView(btnClose)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = 50; y = 150 }
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = 50; y = 200 }
 
-        // Attach dragging logic ONLY to the dragHandle icon
+        // Draggable only via dragHandle
         var ix = 0; var iy = 0; var itx = 0f; var ity = 0f
         dragHandle.setOnTouchListener { _, event ->
             when (event.action) {
@@ -175,19 +190,16 @@ class OverlayService : Service() {
             targetPos = Vec2(prefs.getFloat("target_x", 800f), prefs.getFloat("target_y", 400f))
         }
         
-        // ABSOLUTE PASSTHROUGH FLAGS
+        // CRITICAL: alpha < 0.8 is REQUIRED for touch passthrough on Android 12+
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or 
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or 
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            alpha = 0.99f // OEM trick to ensure touch passthrough on aggressive skins
-        }
+        ).apply { alpha = 0.7f }
         
         windowManager.addView(overlay, params); aimOverlay = overlay
     }
@@ -218,7 +230,11 @@ class OverlayService : Service() {
             size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply { gravity = Gravity.TOP or Gravity.START; x = (pos.x - size / 2f).toInt(); y = (pos.y - size / 2f).toInt() }
+        ).apply { 
+            gravity = Gravity.TOP or Gravity.START
+            x = (pos.x - size / 2f).toInt(); y = (pos.y - size / 2f).toInt()
+            alpha = 0.85f 
+        }
         val view = MarkerOverlayView(this, windowManager, p, type, pos, onMove).apply { 
             visibility = View.GONE; ballRadius = prefs.getFloat("ball_radius", 15f)
         }
@@ -227,28 +243,23 @@ class OverlayService : Service() {
     }
 
     private fun refreshOverlayLayouts() {
-        val bounds = loadTableBounds()
-        aimOverlay?.tableBounds = bounds
+        val b = loadTableBounds()
+        aimOverlay?.tableBounds = b
         aimOverlay?.invalidate()
         
-        handleTL?.updateParamsPosition(Vec2(bounds.left, bounds.top))
-        handleTR?.updateParamsPosition(Vec2(bounds.right, bounds.top))
-        handleBR?.updateParamsPosition(Vec2(bounds.right, bounds.bottom))
-        handleBL?.updateParamsPosition(Vec2(bounds.left, bounds.bottom))
+        handleTL?.updateParamsPosition(Vec2(b.left, b.top))
+        handleTR?.updateParamsPosition(Vec2(b.right, b.top))
+        handleBR?.updateParamsPosition(Vec2(b.right, b.bottom))
+        handleBL?.updateParamsPosition(Vec2(b.left, b.bottom))
         
-        // Check markers are not off-screen
         val dm = resources.displayMetrics
-        val w = dm.widthPixels.toFloat()
-        val h = dm.heightPixels.toFloat()
-        val cp = aimOverlay?.cuePos ?: Vec2(0f, 0f)
-        val tp = aimOverlay?.targetPos ?: Vec2(0f, 0f)
+        val w = dm.widthPixels.toFloat(); val h = dm.heightPixels.toFloat()
         
-        aimOverlay?.cuePos = Vec2(cp.x.coerceIn(0f, w), cp.y.coerceIn(0f, h))
-        aimOverlay?.targetPos = Vec2(tp.x.coerceIn(0f, w), tp.y.coerceIn(0f, h))
+        aimOverlay?.cuePos = Vec2(aimOverlay?.cuePos?.x?.coerceIn(0f, w) ?: 0f, aimOverlay?.cuePos?.y?.coerceIn(0f, h) ?: 0f)
+        aimOverlay?.targetPos = Vec2(aimOverlay?.targetPos?.x?.coerceIn(0f, w) ?: 0f, aimOverlay?.targetPos?.y?.coerceIn(0f, h) ?: 0f)
         
         cueMarker?.updateParamsPosition(aimOverlay!!.cuePos)
         targetMarker?.updateParamsPosition(aimOverlay!!.targetPos)
-        
         aimOverlay?.invalidate()
     }
 
@@ -294,10 +305,7 @@ class OverlayService : Service() {
     private fun loadTableBounds(): RectF {
         val dm = resources.displayMetrics
         val w = dm.widthPixels.toFloat(); val h = dm.heightPixels.toFloat()
-        
-        // Safe 75% centered region
-        val dl = w * 0.12f; val dt = h * 0.15f; val dr = w * 0.88f; val db = h * 0.85f
-        
+        val dl = w * 0.15f; val dt = h * 0.2f; val dr = w * 0.85f; val db = h * 0.8f
         return RectF(
             prefs.getFloat("table_left", dl), prefs.getFloat("table_top", dt),
             prefs.getFloat("table_right", dr), prefs.getFloat("table_bottom", db)
@@ -308,5 +316,7 @@ class OverlayService : Service() {
         listOf(controlBar, aimOverlay, cueMarker, targetMarker, handleTL, handleTR, handleBR, handleBL).forEach { v ->
             v?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         }
+        controlBar = null; aimOverlay = null; cueMarker = null; targetMarker = null
+        handleTL = null; handleTR = null; handleBR = null; handleBL = null
     }
 }
