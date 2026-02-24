@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">Pool Aim Overlay</string>
+    <string name="channel_name">Overlay Service</string>
+    <string name="channel_description">Controls the aim overlay</string>
+    <string name="notification_title">Pool Aim Overlay Active</string>
+    <string name="notification_text">Tap to open settings. Use actions to control.</string>
+    <string name="action_toggle">Toggle Overlay</string>
+    <string name="action_stop">Stop</string>
+    <string name="btn_start">Start Overlay Service</string>
+    <string name="btn_stop">Stop Overlay Service</string>
+    <string name="btn_permission">Grant Overlay Permission</string>
+    <string name="status_active">Overlay is running</string>
+    <string name="status_inactive">Overlay is stopped</string>
+    <string name="label_max_bounces">Max Bounces: %d</string>
+    <string name="label_line_thickness">Line Thickness</string>
+    <string name="label_settings">Settings</string>
+</resources>

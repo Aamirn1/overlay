@@ -1,0 +1,2 @@
+rootProject.name = "PoolAimOverlay"
+include ':app'

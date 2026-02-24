@@ -1,0 +1,17 @@
+<resources>
+    <color name="primary">#FF1A1A2E</color>
+    <color name="primary_variant">#FF16213E</color>
+    <color name="secondary">#FF0F3460</color>
+    <color name="accent">#FF00D4FF</color>
+    <color name="surface">#FF0A0A1A</color>
+    <color name="on_primary">#FFFFFFFF</color>
+    <color name="on_surface">#FFE0E0E0</color>
+    <color name="cue_line">#CC00E5FF</color>
+    <color name="object_line">#CCFFAB40</color>
+    <color name="bounce_point">#CCFF5252</color>
+    <color name="pocket_zone">#4400C853</color>
+    <color name="setup_rail">#CCFFD740</color>
+    <color name="setup_handle">#FFFFFFFF</color>
+    <color name="marker_cue">#EEFFFFFF</color>
+    <color name="marker_target">#EEFF5252</color>
+</resources>
