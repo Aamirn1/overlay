@@ -23,8 +23,7 @@ import com.poolaim.overlay.view.AimOverlayView
 import com.poolaim.overlay.view.MarkerOverlayView
 
 /**
- * Foreground service that coordinates the 100% passthrough overlay architecture.
- * Manages 8 tiny windows + 1 full-screen non-touchable layer.
+ * Final refactored service for 100% passthrough and orientation awareness.
  */
 class OverlayService : Service() {
 
@@ -41,7 +40,6 @@ class OverlayService : Service() {
     private var controlBar: View? = null
     private var aimOverlay: AimOverlayView? = null
     
-    // Bubble windows
     private var cueMarker: MarkerOverlayView? = null
     private var targetMarker: MarkerOverlayView? = null
     private var handleTL: MarkerOverlayView? = null
@@ -61,12 +59,6 @@ class OverlayService : Service() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
         
-        // Window Hierarchy (Bottom to Top):
-        // Aim Layer (Non-touchable)
-        // Setup Handles (Only in setup mode)
-        // Markers (Only in aim mode)
-        // Control Bar (Persistent)
-        
         createAimOverlay()
         createSetupHandles()
         createMarkers()
@@ -79,6 +71,17 @@ class OverlayService : Service() {
             ACTION_STOP -> { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
         }
         return START_STICKY
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Refresh full-screen bounds and pockets on rotation
+        val bounds = loadTableBounds()
+        aimOverlay?.tableBounds = bounds
+        aimOverlay?.invalidate()
+        
+        // Reposition handles and markers to keep them in view
+        refreshMarkerPositions()
     }
 
     override fun onDestroy() { removeAllOverlays(); super.onDestroy() }
@@ -131,7 +134,7 @@ class OverlayService : Service() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START; x = 50; y = 150 }
 
@@ -158,72 +161,72 @@ class OverlayService : Service() {
             cuePos = Vec2(prefs.getFloat("cue_x", 400f), prefs.getFloat("cue_y", 400f))
             targetPos = Vec2(prefs.getFloat("target_x", 800f), prefs.getFloat("target_y", 400f))
         }
-        // FLAG_NOT_TOUCHABLE ensures this never blocks game input
+        // FLAG_NOT_TOUCHABLE + FLAG_NOT_TOUCH_MODAL + FLAG_NOT_FOCUSABLE = 100% Passthrough
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or 
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or 
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
         windowManager.addView(overlay, params); aimOverlay = overlay
     }
 
     private fun createMarkers() {
-        val ballRadius = prefs.getFloat("ball_radius", 15f)
-        val cuePos = Vec2(prefs.getFloat("cue_x", 400f), prefs.getFloat("cue_y", 400f))
-        val targetPos = Vec2(prefs.getFloat("target_x", 800f), prefs.getFloat("target_y", 400f))
+        val radius = prefs.getFloat("ball_radius", 15f)
+        val cueP = Vec2(prefs.getFloat("cue_x", 400f), prefs.getFloat("cue_y", 400f))
+        val targetP = Vec2(prefs.getFloat("target_x", 800f), prefs.getFloat("target_y", 400f))
+        val size = (radius * 5).toInt()
         
-        val markerSize = (ballRadius * 5).toInt()
-        
-        val cueParams = createMarkerParams(cuePos, markerSize)
-        cueMarker = MarkerOverlayView(this, windowManager, cueParams, "CUE", cuePos) { newPos ->
-            aimOverlay?.cuePos = newPos; aimOverlay?.invalidate(); saveMarkerPos("cue", newPos)
-        }.apply { visibility = View.GONE; this.ballRadius = ballRadius }
-        windowManager.addView(cueMarker, cueParams)
-
-        val targetParams = createMarkerParams(targetPos, markerSize)
-        targetMarker = MarkerOverlayView(this, windowManager, targetParams, "OBJ", targetPos) { newPos ->
-            aimOverlay?.targetPos = newPos; aimOverlay?.invalidate(); saveMarkerPos("target", newPos)
-        }.apply { visibility = View.GONE; this.ballRadius = ballRadius }
-        windowManager.addView(targetMarker, targetParams)
+        cueMarker = createMarkerBubble("CUE", cueP, size) { aimOverlay?.cuePos = it; aimOverlay?.invalidate(); savePos("cue", it) }
+        targetMarker = createMarkerBubble("OBJ", targetP, size) { aimOverlay?.targetPos = it; aimOverlay?.invalidate(); savePos("target", it) }
     }
 
     private fun createSetupHandles() {
-        val ballRadius = prefs.getFloat("ball_radius", 15f)
-        val bounds = loadTableBounds()
-        val handleSize = (ballRadius * 4).toInt()
+        val radius = prefs.getFloat("ball_radius", 15f)
+        val b = loadTableBounds()
+        val size = (radius * 4).toInt()
         
-        val tlPos = Vec2(bounds.left, bounds.top)
-        val trPos = Vec2(bounds.right, bounds.top)
-        val brPos = Vec2(bounds.right, bounds.bottom)
-        val blPos = Vec2(bounds.left, bounds.bottom)
-        
-        handleTL = createHandle("TL", tlPos, handleSize) { newPos -> updateBounds(tl = newPos) }
-        handleTR = createHandle("TR", trPos, handleSize) { newPos -> updateBounds(tr = newPos) }
-        handleBR = createHandle("BR", brPos, handleSize) { newPos -> updateBounds(br = newPos) }
-        handleBL = createHandle("BL", blPos, handleSize) { newPos -> updateBounds(bl = newPos) }
+        handleTL = createMarkerBubble("TL", Vec2(b.left, b.top), size) { updateBounds(tl = it) }
+        handleTR = createMarkerBubble("TR", Vec2(b.right, b.top), size) { updateBounds(tr = it) }
+        handleBR = createMarkerBubble("BR", Vec2(b.right, b.bottom), size) { updateBounds(br = it) }
+        handleBL = createMarkerBubble("BL", Vec2(b.left, b.bottom), size) { updateBounds(bl = it) }
     }
 
-    private fun createHandle(type: String, pos: Vec2, size: Int, onMove: (Vec2) -> Unit): MarkerOverlayView {
-        val params = createMarkerParams(pos, size)
-        val view = MarkerOverlayView(this, windowManager, params, type, pos, onMove).apply { 
+    private fun createMarkerBubble(type: String, pos: Vec2, size: Int, onMove: (Vec2) -> Unit): MarkerOverlayView {
+        val p = WindowManager.LayoutParams(
+            size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START; x = (pos.x - size / 2f).toInt(); y = (pos.y - size / 2f).toInt() }
+        val view = MarkerOverlayView(this, windowManager, p, type, pos, onMove).apply { 
             visibility = View.GONE; ballRadius = prefs.getFloat("ball_radius", 15f)
         }
-        windowManager.addView(view, params)
+        windowManager.addView(view, p)
         return view
     }
 
-    private fun createMarkerParams(pos: Vec2, size: Int): WindowManager.LayoutParams {
-        return WindowManager.LayoutParams(
-            size, size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = (pos.x - size / 2f).toInt()
-            y = (pos.y - size / 2f).toInt()
-        }
+    private fun refreshMarkerPositions() {
+        val b = loadTableBounds()
+        handleTL?.updateParamsPosition(Vec2(b.left, b.top))
+        handleTR?.updateParamsPosition(Vec2(b.right, b.top))
+        handleBR?.updateParamsPosition(Vec2(b.right, b.bottom))
+        handleBL?.updateParamsPosition(Vec2(b.left, b.bottom))
+        
+        // Ensure markers are within screen
+        val dm = resources.displayMetrics
+        val w = dm.widthPixels.toFloat()
+        val h = dm.heightPixels.toFloat()
+        
+        aimOverlay?.cuePos = Vec2(aimOverlay?.cuePos?.x?.coerceIn(0f, w) ?: 0f, aimOverlay?.cuePos?.y?.coerceIn(0f, h) ?: 0f)
+        aimOverlay?.targetPos = Vec2(aimOverlay?.targetPos?.x?.coerceIn(0f, w) ?: 0f, aimOverlay?.targetPos?.y?.coerceIn(0f, h) ?: 0f)
+        
+        cueMarker?.updateParamsPosition(aimOverlay!!.cuePos)
+        targetMarker?.updateParamsPosition(aimOverlay!!.targetPos)
+        
+        aimOverlay?.invalidate()
     }
 
     private fun toggleAim() {
@@ -237,31 +240,23 @@ class OverlayService : Service() {
     private fun toggleSetup() {
         isSetupShowing = !isSetupShowing
         aimOverlay?.isSetupVisible = isSetupShowing; aimOverlay?.invalidate()
-        
-        val visibility = if (isSetupShowing) View.VISIBLE else View.GONE
-        handleTL?.visibility = visibility; handleTR?.visibility = visibility
-        handleBR?.visibility = visibility; handleBL?.visibility = visibility
-        
+        val v = if (isSetupShowing) View.VISIBLE else View.GONE
+        handleTL?.visibility = v; handleTR?.visibility = v; handleBR?.visibility = v; handleBL?.visibility = v
         if (!isSetupShowing) saveTableBounds(aimOverlay?.tableBounds ?: loadTableBounds())
     }
 
     private fun updateBounds(tl: Vec2? = null, tr: Vec2? = null, br: Vec2? = null, bl: Vec2? = null) {
-        val current = aimOverlay?.tableBounds ?: loadTableBounds()
-        
-        val newLeft = tl?.x ?: bl?.x ?: current.left
-        val newTop = tl?.y ?: tr?.y ?: current.top
-        val newRight = tr?.x ?: br?.x ?: current.right
-        val newBottom = bl?.y ?: br?.y ?: current.bottom
-        
-        val newBounds = RectF(newLeft, newTop, newRight, newBottom)
-        aimOverlay?.tableBounds = newBounds
-        aimOverlay?.invalidate()
-        
-        // Sync other handles to maintain rectangle
-        tl?.let { handleTR?.updateParamsPosition(Vec2(newRight, it.y)); handleBL?.updateParamsPosition(Vec2(it.x, newBottom)) }
-        tr?.let { handleTL?.updateParamsPosition(Vec2(newLeft, it.y)); handleBR?.updateParamsPosition(Vec2(it.x, newBottom)) }
-        br?.let { handleTR?.updateParamsPosition(Vec2(it.x, newTop)); handleBL?.updateParamsPosition(Vec2(newLeft, it.y)) }
-        bl?.let { handleTL?.updateParamsPosition(Vec2(it.x, newTop)); handleBR?.updateParamsPosition(Vec2(newRight, it.y)) }
+        val c = aimOverlay?.tableBounds ?: loadTableBounds()
+        val nl = tl?.x ?: bl?.x ?: c.left
+        val nt = tl?.y ?: tr?.y ?: c.top
+        val nr = tr?.x ?: br?.x ?: c.right
+        val nb = bl?.y ?: br?.y ?: c.bottom
+        val nbnd = RectF(nl, nt, nr, nb)
+        aimOverlay?.tableBounds = nbnd; aimOverlay?.invalidate()
+        tl?.let { handleTR?.updateParamsPosition(Vec2(nr, it.y)); handleBL?.updateParamsPosition(Vec2(it.x, nb)) }
+        tr?.let { handleTL?.updateParamsPosition(Vec2(nl, it.y)); handleBR?.updateParamsPosition(Vec2(it.x, nb)) }
+        br?.let { handleTR?.updateParamsPosition(Vec2(it.x, nt)); handleBL?.updateParamsPosition(Vec2(nl, it.y)) }
+        bl?.let { handleTL?.updateParamsPosition(Vec2(it.x, nt)); handleBR?.updateParamsPosition(Vec2(nr, it.y)) }
     }
 
     private fun saveTableBounds(b: RectF) {
@@ -269,27 +264,21 @@ class OverlayService : Service() {
             .putFloat("table_right", b.right).putFloat("table_bottom", b.bottom).apply()
     }
 
-    private fun saveMarkerPos(prefix: String, pos: Vec2) {
-        prefs.edit().putFloat("${prefix}_x", pos.x).putFloat("${prefix}_y", pos.y).apply()
+    private fun savePos(pre: String, pos: Vec2) {
+        prefs.edit().putFloat("${pre}_x", pos.x).putFloat("${pre}_y", pos.y).apply()
     }
 
     private fun loadTableBounds(): RectF {
-        val dm = DisplayMetrics()
-        windowManager.defaultDisplay.getMetrics(dm)
+        val dm = resources.displayMetrics
         val w = dm.widthPixels.toFloat()
         val h = dm.heightPixels.toFloat()
         
-        // Default to a 80% centered rectangle (works for both portrait and landscape)
-        val defaultLeft = w * 0.1f
-        val defaultTop = h * 0.15f
-        val defaultRight = w * 0.9f
-        val defaultBottom = h * 0.85f
+        // Centered region that fits both portrait and landscape
+        val dl = w * 0.15f; val dt = h * 0.2f; val dr = w * 0.85f; val db = h * 0.8f
         
         return RectF(
-            prefs.getFloat("table_left", defaultLeft),
-            prefs.getFloat("table_top", defaultTop),
-            prefs.getFloat("table_right", defaultRight),
-            prefs.getFloat("table_bottom", defaultBottom)
+            prefs.getFloat("table_left", dl), prefs.getFloat("table_top", dt),
+            prefs.getFloat("table_right", dr), prefs.getFloat("table_bottom", db)
         )
     }
 
@@ -297,7 +286,5 @@ class OverlayService : Service() {
         listOf(controlBar, aimOverlay, cueMarker, targetMarker, handleTL, handleTR, handleBR, handleBL).forEach { v ->
             v?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         }
-        controlBar = null; aimOverlay = null; cueMarker = null; targetMarker = null
-        handleTL = null; handleTR = null; handleBR = null; handleBL = null
     }
 }
