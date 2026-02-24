@@ -8,7 +8,7 @@ import com.poolaim.overlay.physics.TrajectoryEngine
 import com.poolaim.overlay.physics.Vec2
 
 /**
- * Full-screen transparent overlay that draws trajectory lines.
+ * Full-screen transparent overlay that draws trajectory lines and table guides.
  * This view is non-touchable to allow full game interactivity.
  */
 class AimOverlayView(context: Context) : View(context) {
@@ -20,6 +20,7 @@ class AimOverlayView(context: Context) : View(context) {
     var maxBounces = 3
     var lineThickness = 3f
     var isAimVisible = false
+    var isSetupVisible = false
 
     private val engine = TrajectoryEngine()
 
@@ -53,45 +54,67 @@ class AimOverlayView(context: Context) : View(context) {
         color = Color.parseColor("#CC00C853"); textSize = 28f
         textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD
     }
+    private val railPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#66FFD740"); style = Paint.Style.STROKE; strokeWidth = 2f
+    }
+    private val railFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#08FFD740"); style = Paint.Style.FILL
+    }
 
     override fun onDraw(canvas: Canvas) {
-        if (!isAimVisible) return
+        if (!isAimVisible && !isSetupVisible) return
+        
         cuePaint.strokeWidth = lineThickness
         cuePostPaint.strokeWidth = lineThickness * 0.7f
         objectPaint.strokeWidth = lineThickness
 
         val pockets = engine.getPocketPositions(tableBounds, ballRadius)
         val pocketRadius = ballRadius * 2.5f
-        for (p in pockets) {
-            canvas.drawCircle(p.x, p.y, pocketRadius, pocketPaint)
-            canvas.drawCircle(p.x, p.y, pocketRadius, pocketStrokePaint)
-        }
 
-        val result = engine.computeFullTrajectory(
-            cuePos, targetPos, tableBounds = tableBounds,
-            ballRadius = ballRadius, maxBounces = maxBounces, maxPathLength = 4000f
-        )
-
-        if (result.cuePath.isNotEmpty()) {
-            drawSeg(canvas, result.cuePath[0], cuePaint)
-            for (i in 1 until result.cuePath.size) {
-                drawSeg(canvas, result.cuePath[i], cuePostPaint)
-                canvas.drawCircle(result.cuePath[i].start.x, result.cuePath[i].start.y, 4f, bouncePaint)
+        // Draw Table Guides (Setup Mode)
+        if (isSetupVisible) {
+            canvas.drawRect(tableBounds, railFillPaint)
+            canvas.drawRect(tableBounds, railPaint)
+            
+            // Draw 6 Pocket zones visually
+            for (p in pockets) {
+                canvas.drawCircle(p.x, p.y, pocketRadius, pocketPaint)
+                canvas.drawCircle(p.x, p.y, pocketRadius, pocketStrokePaint)
             }
         }
-        for (seg in result.objectPath) drawSeg(canvas, seg, objectPaint)
-        for (i in 1 until result.objectPath.size) {
-            canvas.drawCircle(result.objectPath[i].start.x, result.objectPath[i].start.y, 4f, bouncePaint)
-        }
 
-        if (result.cuePath.isNotEmpty()) {
-            val ce = result.cuePath[0].end
-            if (ce.distanceTo(targetPos) < ballRadius * 3f)
-                canvas.drawCircle(ce.x, ce.y, ballRadius, ghostBallPaint)
-        }
-        if (result.pocketed && result.pocketIndex in pockets.indices) {
-            val p = pockets[result.pocketIndex]
-            canvas.drawText("✓", p.x, p.y - pocketRadius - 12f, pocketedTextPaint)
+        if (isAimVisible) {
+            // Recalculate trajectory
+            val result = engine.computeFullTrajectory(
+                cuePos, targetPos, tableBounds = tableBounds,
+                ballRadius = ballRadius, maxBounces = maxBounces, maxPathLength = 4000f
+            )
+
+            // Draw Lines
+            if (result.cuePath.isNotEmpty()) {
+                drawSeg(canvas, result.cuePath[0], cuePaint)
+                for (i in 1 until result.cuePath.size) {
+                    drawSeg(canvas, result.cuePath[i], cuePostPaint)
+                    canvas.drawCircle(result.cuePath[i].start.x, result.cuePath[i].start.y, 4f, bouncePaint)
+                }
+            }
+            for (seg in result.objectPath) drawSeg(canvas, seg, objectPaint)
+            for (i in 1 until result.objectPath.size) {
+                canvas.drawCircle(result.objectPath[i].start.x, result.objectPath[i].start.y, 4f, bouncePaint)
+            }
+
+            // Ghost Ball
+            if (result.cuePath.isNotEmpty()) {
+                val ce = result.cuePath[0].end
+                if (ce.distanceTo(targetPos) < ballRadius * 3f)
+                    canvas.drawCircle(ce.x, ce.y, ballRadius, ghostBallPaint)
+            }
+            
+            // Pocket Hit Indicator
+            if (result.pocketed && result.pocketIndex in pockets.indices) {
+                val p = pockets[result.pocketIndex]
+                canvas.drawText("✓", p.x, p.y - pocketRadius - 12f, pocketedTextPaint)
+            }
         }
     }
 
