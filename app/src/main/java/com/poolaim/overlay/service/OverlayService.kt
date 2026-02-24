@@ -18,6 +18,7 @@ import com.poolaim.overlay.MainActivity
 import com.poolaim.overlay.R
 import com.poolaim.overlay.physics.Vec2
 import com.poolaim.overlay.view.AimOverlayView
+import com.poolaim.overlay.view.MarkerOverlayView
 import com.poolaim.overlay.view.SetupOverlayView
 
 class OverlayService : Service() {
@@ -35,7 +36,10 @@ class OverlayService : Service() {
     private var controlBar: View? = null
     private var aimOverlay: AimOverlayView? = null
     private var setupOverlay: SetupOverlayView? = null
-    private var isAimShowing = false
+    private var cueMarker: MarkerOverlayView? = null
+    private var targetMarker: MarkerOverlayView? = null
+    
+    private var isAimMarkerShowing = false
     private var isSetupShowing = false
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -46,9 +50,13 @@ class OverlayService : Service() {
         prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
-        createControlBar()
+        
+        // Z-order is determined by the order of adding to WindowManager.
+        // We want: Aim (Bottom) -> Setup -> Markers -> ControlBar (Top)
         createAimOverlay()
         createSetupOverlay()
+        createMarkers()
+        createControlBar() 
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -91,8 +99,8 @@ class OverlayService : Service() {
     private fun createControlBar() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setBackgroundColor(0xDD1A1A2E.toInt())
-            setPadding(8, 4, 8, 4); elevation = 8f
+            setBackgroundColor(0xEE1A1A2E.toInt())
+            setPadding(8, 4, 8, 4); elevation = 20f
         }
         val btnAim = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_compass)
@@ -109,7 +117,8 @@ class OverlayService : Service() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
         ).apply { gravity = Gravity.TOP or Gravity.START; x = 20; y = 100 }
 
         var ix = 0; var iy = 0; var itx = 0f; var ity = 0f
@@ -132,14 +141,54 @@ class OverlayService : Service() {
             ballRadius = prefs.getFloat("ball_radius", 15f)
             maxBounces = prefs.getInt("max_bounces", 3)
             lineThickness = prefs.getFloat("line_thickness", 3f)
+            cuePos = Vec2(prefs.getFloat("cue_x", 400f), prefs.getFloat("cue_y", 1200f))
+            targetPos = Vec2(prefs.getFloat("target_x", 400f), prefs.getFloat("target_y", 800f))
         }
+        // IMPORTANT: FLAG_NOT_TOUCHABLE ensures this full-screen view never blocks input
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
         windowManager.addView(overlay, params); aimOverlay = overlay
+    }
+
+    private fun createMarkers() {
+        val ballRadius = prefs.getFloat("ball_radius", 15f)
+        val cuePos = Vec2(prefs.getFloat("cue_x", 400f), prefs.getFloat("cue_y", 1200f))
+        val targetPos = Vec2(prefs.getFloat("target_x", 400f), prefs.getFloat("target_y", 800f))
+        
+        val markerSize = (ballRadius * 4).toInt()
+        
+        val cueParams = createMarkerParams(cuePos, markerSize)
+        cueMarker = MarkerOverlayView(this, windowManager, cueParams, "CUE", cuePos) { newPos ->
+            aimOverlay?.cuePos = newPos
+            aimOverlay?.invalidate()
+            saveMarkerPos("cue", newPos)
+        }.apply { visibility = View.GONE; this.ballRadius = ballRadius }
+        windowManager.addView(cueMarker, cueParams)
+
+        val targetParams = createMarkerParams(targetPos, markerSize)
+        targetMarker = MarkerOverlayView(this, windowManager, targetParams, "OBJ", targetPos) { newPos ->
+            aimOverlay?.targetPos = newPos
+            aimOverlay?.invalidate()
+            saveMarkerPos("target", newPos)
+        }.apply { visibility = View.GONE; this.ballRadius = ballRadius }
+        windowManager.addView(targetMarker, targetParams)
+    }
+
+    private fun createMarkerParams(pos: Vec2, size: Int): WindowManager.LayoutParams {
+        return WindowManager.LayoutParams(
+            size, size,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = (pos.x - size / 2f).toInt()
+            y = (pos.y - size / 2f).toInt()
+        }
     }
 
     private fun createSetupOverlay() {
@@ -152,16 +201,18 @@ class OverlayService : Service() {
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
         windowManager.addView(overlay, params); setupOverlay = overlay
     }
 
     private fun toggleAim() {
-        isAimShowing = !isAimShowing
-        aimOverlay?.isAimVisible = isAimShowing; aimOverlay?.invalidate()
-        if (isAimShowing && isSetupShowing) toggleSetup()
+        isAimMarkerShowing = !isAimMarkerShowing
+        aimOverlay?.isAimVisible = isAimMarkerShowing; aimOverlay?.invalidate()
+        cueMarker?.visibility = if (isAimMarkerShowing) View.VISIBLE else View.GONE
+        targetMarker?.visibility = if (isAimMarkerShowing) View.VISIBLE else View.GONE
+        if (isAimMarkerShowing && isSetupShowing) toggleSetup()
     }
 
     private fun toggleSetup() {
@@ -178,15 +229,19 @@ class OverlayService : Service() {
             .putFloat("table_right", b.right).putFloat("table_bottom", b.bottom).apply()
     }
 
+    private fun saveMarkerPos(prefix: String, pos: Vec2) {
+        prefs.edit().putFloat("${prefix}_x", pos.x).putFloat("${prefix}_y", pos.y).apply()
+    }
+
     private fun loadTableBounds(): RectF = RectF(
         prefs.getFloat("table_left", 50f), prefs.getFloat("table_top", 300f),
         prefs.getFloat("table_right", 1030f), prefs.getFloat("table_bottom", 1800f)
     )
 
     private fun removeAllOverlays() {
-        listOf(controlBar, aimOverlay, setupOverlay).forEach { v ->
+        listOf(controlBar, aimOverlay, setupOverlay, cueMarker, targetMarker).forEach { v ->
             v?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         }
-        controlBar = null; aimOverlay = null; setupOverlay = null
+        controlBar = null; aimOverlay = null; setupOverlay = null; cueMarker = null; targetMarker = null
     }
 }
