@@ -357,7 +357,7 @@ class OverlayService : Service() {
         aimOverlay?.isAimVisible = isAimMarkerShowing; aimOverlay?.invalidate()
         // Only show manual markers when NOT in CV mode
         if (!isCvModeActive) setMarkersVisible(isAimMarkerShowing)
-        if (isAimMarkerShowing && isSetupShowing) toggleSetup()
+        if (isAimMarkerShowing && isSetupActive) toggleSetup()
         // Keep physics loop table bounds in sync
         physicsLoop?.tableBoundsScreen = aimOverlay?.tableBounds ?: loadTableBounds()
     }
@@ -368,12 +368,12 @@ class OverlayService : Service() {
     }
 
     private fun toggleSetup() {
-        isSetupShowing = !isSetupShowing
-        aimOverlay?.isSetupVisible = isSetupShowing; aimOverlay?.invalidate()
-        val v = if (isSetupShowing) View.VISIBLE else View.GONE
+        isSetupActive = !isSetupActive
+        aimOverlay?.isSetupVisible = isSetupActive; aimOverlay?.invalidate()
+        val v = if (isSetupActive) View.VISIBLE else View.GONE
         handleTL?.visibility = v; handleTR?.visibility = v
         handleBR?.visibility = v; handleBL?.visibility = v
-        if (!isSetupShowing) saveTableBounds(aimOverlay?.tableBounds ?: loadTableBounds())
+        if (!isSetupActive) saveTableBounds(aimOverlay?.tableBounds ?: loadTableBounds())
     }
 
     private fun refreshOverlayLayouts() {
