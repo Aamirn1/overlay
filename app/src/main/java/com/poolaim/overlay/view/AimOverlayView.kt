@@ -24,7 +24,6 @@ class AimOverlayView(context: Context) : View(context) {
     var cuePos = Vec2(400f, 1200f)
     var targetPos = Vec2(400f, 800f)
     var aimDirection: Vec2? = null      // CV-detected direction; null → use cuePos→targetPos
-    var isCvActive = false              // true while CV mode is tracking
     var tableBounds = RectF(50f, 300f, 1030f, 1800f)
     var ballRadius = 15f
     var maxBounces = 3

@@ -20,6 +20,7 @@ import android.view.WindowManager
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.poolaim.overlay.MainActivity
 import com.poolaim.overlay.R
