@@ -31,6 +31,8 @@ class AimOverlayView(context: Context) : View(context) {
     var lineThickness = 3f
     var isAimVisible = false
     var isSetupVisible = false
+    var isCvActive = false              // true while CV mode is tracking
+    var isCvSearching = false // Toggle this when CV is started but not yet tracking
 
     private val engine = TrajectoryEngine()
 
@@ -87,10 +89,11 @@ class AimOverlayView(context: Context) : View(context) {
     fun updateFromDetection(result: DetectionResult) {
         if (result.confidence < 0.4f) {
             isCvActive = false
-            aimDirection = null
+            // Keep isCvSearching true if we are in CV mode
             invalidate()
             return
         }
+        isCvSearching = false
         isCvActive = true
         result.cueBallCenter?.let { cuePos = it }
         result.aimDirection?.let { aimDirection = it }
@@ -157,11 +160,18 @@ class AimOverlayView(context: Context) : View(context) {
                 canvas.drawText("✓", p.x, p.y - pocketRadius - 12f, pocketedTextPaint)
             }
 
-            // CV Mode: draw detected ball indicators + status badge
-            if (isCvActive) {
-                canvas.drawCircle(cuePos.x, cuePos.y, ballRadius * 1.3f, cvBallPaint)
-                canvas.drawCircle(targetPos.x, targetPos.y, ballRadius * 1.3f, cvBallPaint)
-                canvas.drawText("⚡ CV", 32f, 60f, cvStatusPaint)
+            // CV Mode Status Badge
+            if (isCvSearching || isCvActive) {
+                if (isCvActive) {
+                    canvas.drawCircle(cuePos.x, cuePos.y, ballRadius * 1.3f, cvBallPaint)
+                    canvas.drawCircle(targetPos.x, targetPos.y, ballRadius * 1.3f, cvBallPaint)
+                    canvas.drawText("⚡ CV ACTIVE", 32f, 70f, cvStatusPaint)
+                } else {
+                    // Draw searching in smaller/dimmer text
+                    cvStatusPaint.alpha = 0xA0
+                    canvas.drawText("⚡ SEARCHING...", 32f, 70f, cvStatusPaint)
+                    cvStatusPaint.alpha = 0xFF
+                }
             }
         }
     }

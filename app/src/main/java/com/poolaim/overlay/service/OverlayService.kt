@@ -67,7 +67,8 @@ class OverlayService : Service() {
     private var handleBL: MarkerOverlayView? = null
 
     private var isAimMarkerShowing = false
-    private var isSetupShowing = false
+    private var isSetupActive = false
+    private var isBarExpanded = true  // Collapsible state
 
     // CV components
     private val captureManager = ScreenCaptureManager()
@@ -138,6 +139,7 @@ class OverlayService : Service() {
         loop.start()
 
         isCvModeActive = true
+        aimOverlay?.isCvSearching = true
         // Show aim overlay; hide draggable markers (CV drives them now)
         if (!isAimMarkerShowing) toggleAim()
         setMarkersVisible(false)
@@ -149,6 +151,8 @@ class OverlayService : Service() {
         physicsLoop = null
         captureManager.stop()
         isCvModeActive = false
+        aimOverlay?.isCvActive = false
+        aimOverlay?.isCvSearching = false
     }
 
     // ── Overlay construction ─────────────────────────────────────────────── //
@@ -195,22 +199,66 @@ class OverlayService : Service() {
             setImageResource(android.R.drawable.ic_menu_sort_by_size)
             setPadding(12, 12, 12, 12); setColorFilter(0xFFCCCCCC.toInt())
         }
+
+        // Action grouping for collapse/expand
+        val actionGroup = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
         val btnAim = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_compass)
             setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
-            setColorFilter(0xFF00E5FF.toInt()); setOnClickListener { toggleAim() }
+            alpha = if (isAimMarkerShowing) 1f else 0.4f
+            setOnClickListener { toggleAim(); alpha = if (isAimMarkerShowing) 1f else 0.4f }
         }
         val btnSetup = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_manage)
             setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
-            setColorFilter(0xFFFFD740.toInt()); setOnClickListener { toggleSetup() }
+            alpha = if (isSetupActive) 1f else 0.4f
+            setOnClickListener { toggleSetup(); alpha = if (isSetupActive) 1f else 0.4f }
         }
+
+        // ⚡ New CV Toggle Button
+        val btnCv = ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_view) // using eye/view icon for CV
+            setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
+            setColorFilter(if (isCvModeActive) 0xFF00C853.toInt() else 0xFFFFFFFF.toInt())
+            setOnClickListener {
+                if (isCvModeActive) stopCvMode() else {
+                    Toast.makeText(this@OverlayService, "Start CV from main app first", Toast.LENGTH_SHORT).show()
+                }
+                setColorFilter(if (isCvModeActive) 0xFF00C853.toInt() else 0xFFFFFFFF.toInt())
+            }
+        }
+
         val btnClose = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
             setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
-            setColorFilter(0xFFFF5252.toInt()); setOnClickListener { exitService() }
+            setColorFilter(0xFFF44336.toInt())
+            setOnClickListener { exitService() }
         }
-        bar.addView(dragHandle); bar.addView(btnAim); bar.addView(btnSetup); bar.addView(btnClose)
+
+        // Arrow Toggle (Collapse/Expand)
+        val btnToggle = ImageButton(this).apply {
+            setImageResource(if (isBarExpanded) android.R.drawable.ic_media_previous else android.R.drawable.ic_media_next)
+            setBackgroundColor(0x00000000); setPadding(12, 12, 12, 12)
+            setColorFilter(0xFFFFFFFF.toInt())
+            setOnClickListener {
+                isBarExpanded = !isBarExpanded
+                actionGroup.visibility = if (isBarExpanded) View.VISIBLE else View.GONE
+                setImageResource(if (isBarExpanded) android.R.drawable.ic_media_previous else android.R.drawable.ic_media_next)
+            }
+        }
+
+        bar.addView(dragHandle)
+        // Add actions to group
+        actionGroup.addView(btnAim)
+        actionGroup.addView(btnSetup)
+        actionGroup.addView(btnCv)
+        actionGroup.addView(btnClose)
+
+        bar.addView(actionGroup)
+        bar.addView(btnToggle)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,

@@ -65,6 +65,11 @@ object BitmapCv {
         val r = table.right.toInt().coerceIn(0, w - 1)
         val b = table.bottom.toInt().coerceIn(0, h - 1)
 
+        val tableCenterX = (l + r) / 2f
+        val tableCenterY = (t + b) / 2f
+        val logoWidth = (r - l) * 0.25f  // Reject center 25% of table
+        val logoHeight = (b - t) * 0.25f
+
         // Accumulation grid of cell size CLUSTER_RADIUS
         val cellW = (r - l) / CLUSTER_RADIUS + 1
         val cellH = (b - t) / CLUSTER_RADIUS + 1
@@ -74,33 +79,51 @@ object BitmapCv {
         while (y <= b) {
             var x = l
             while (x <= r) {
-                val px = pixels[y * w + x]
-                if (isNearWhite(px)) {
-                    val cx = (x - l) / CLUSTER_RADIUS
-                    val cy = (y - t) / CLUSTER_RADIUS
-                    votes[cy * cellW + cx]++
+                // Reject pixels in the middle "8 Pool" logo area to reduce noise
+                val isLogoArea = abs(x - tableCenterX) < logoWidth / 2f && abs(y - tableCenterY) < logoHeight / 2f
+
+                if (!isLogoArea) {
+                    val px = pixels[y * w + x]
+                    if (isNearWhite(px)) {
+                        val cx = (x - l) / CLUSTER_RADIUS
+                        val cy = (y - t) / CLUSTER_RADIUS
+                        votes[cy * cellW + cx]++
+                    }
                 }
                 x += BALL_SCAN_STEP
             }
             y += BALL_SCAN_STEP
         }
 
-        // Find the cell with most white pixels
-        var bestVote = 8              // minimum threshold to count
-        var bestCx = -1; var bestCy = -1
-        for (cy in 0 until cellH) {
-            for (cx in 0 until cellW) {
+        // Find the cell with the most white pixels
+        // We look for the strongest cluster, but we'll also check surrounding cells
+        var bestWeight = 0f
+        var bestPx = -1f; var bestPy = -1f
+
+        for (cy in 1 until cellH - 1) {
+            for (cx in 1 until cellW - 1) {
                 val v = votes[cy * cellW + cx]
-                if (v > bestVote) {
-                    bestVote = v; bestCx = cx; bestCy = cy
+                if (v > 6) {
+                    // Score is based on density + circularity proxy (symmetry with neighbors)
+                    val n = votes[(cy - 1) * cellW + cx]
+                    val s = votes[(cy + 1) * cellW + cx]
+                    val e = votes[cy * cellW + (cx + 1)]
+                    val w_ = votes[cy * cellW + (cx - 1)]
+
+                    // Circular clusters have roughly equal neighbor votes
+                    val symmetry = 1f / (1f + abs(n - s) + abs(e - w_))
+                    val weight = v * symmetry
+
+                    if (weight > bestWeight) {
+                        bestWeight = weight
+                        bestPx = l + cx * CLUSTER_RADIUS + CLUSTER_RADIUS / 2f
+                        bestPy = t + cy * CLUSTER_RADIUS + CLUSTER_RADIUS / 2f
+                    }
                 }
             }
         }
-        if (bestCx < 0) return null
 
-        val px = l + bestCx * CLUSTER_RADIUS + CLUSTER_RADIUS / 2f
-        val py = t + bestCy * CLUSTER_RADIUS + CLUSTER_RADIUS / 2f
-        return Vec2(px, py)
+        return if (bestWeight > 0.5f) Vec2(bestPx, bestPy) else null
     }
 
     // ── Aim line detection ────────────────────────────────────────────────── //
