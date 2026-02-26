@@ -3,6 +3,7 @@ package com.poolaim.overlay.view
 import android.content.Context
 import android.graphics.*
 import android.view.View
+import com.poolaim.overlay.cv.DetectionResult
 import com.poolaim.overlay.physics.PathSegment
 import com.poolaim.overlay.physics.TrajectoryEngine
 import com.poolaim.overlay.physics.Vec2
@@ -10,11 +11,20 @@ import com.poolaim.overlay.physics.Vec2
 /**
  * Full-screen transparent overlay that draws trajectory lines and table guides.
  * This view is non-touchable to allow full game interactivity.
+ *
+ * Supports two modes:
+ *  - Manual mode: uses [cuePos], [targetPos] set by draggable markers.
+ *  - CV mode:     [updateFromDetection] feeds detected positions/direction each frame.
+ *
+ * The [aimDirection] override bypasses cue→target vector math and uses
+ * the detected aim line direction directly, exactly matching the real game.
  */
 class AimOverlayView(context: Context) : View(context) {
 
     var cuePos = Vec2(400f, 1200f)
     var targetPos = Vec2(400f, 800f)
+    var aimDirection: Vec2? = null      // CV-detected direction; null → use cuePos→targetPos
+    var isCvActive = false              // true while CV mode is tracking
     var tableBounds = RectF(50f, 300f, 1030f, 1800f)
     var ballRadius = 15f
     var maxBounces = 3
@@ -60,10 +70,39 @@ class AimOverlayView(context: Context) : View(context) {
     private val railFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#08FFD740"); style = Paint.Style.FILL
     }
+    private val cvStatusPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#CC00FF88"); textSize = 22f; typeface = Typeface.DEFAULT_BOLD
+    }
+    private val cvBallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#8000FF88"); style = Paint.Style.STROKE; strokeWidth = 2f
+    }
+
+    // ── CV-mode update (called from PhysicsLoop on main thread) ─────────── //
+
+    /**
+     * Called every frame by [PhysicsLoop] with the latest CV detections.
+     * If confidence is below threshold the result will be EMPTY and CV mode
+     * gracefully degrades (existing manual positions remain shown).
+     */
+    fun updateFromDetection(result: DetectionResult) {
+        if (result.confidence < 0.4f) {
+            isCvActive = false
+            aimDirection = null
+            invalidate()
+            return
+        }
+        isCvActive = true
+        result.cueBallCenter?.let { cuePos = it }
+        result.aimDirection?.let { aimDirection = it }
+        result.targetBallCenter?.let { targetPos = it }
+        invalidate()
+    }
+
+    // ── Drawing ──────────────────────────────────────────────────────────── //
 
     override fun onDraw(canvas: Canvas) {
         if (!isAimVisible && !isSetupVisible) return
-        
+
         cuePaint.strokeWidth = lineThickness
         cuePostPaint.strokeWidth = lineThickness * 0.7f
         objectPaint.strokeWidth = lineThickness
@@ -75,8 +114,6 @@ class AimOverlayView(context: Context) : View(context) {
         if (isSetupVisible) {
             canvas.drawRect(tableBounds, railFillPaint)
             canvas.drawRect(tableBounds, railPaint)
-            
-            // Draw 6 Pocket zones visually
             for (p in pockets) {
                 canvas.drawCircle(p.x, p.y, pocketRadius, pocketPaint)
                 canvas.drawCircle(p.x, p.y, pocketRadius, pocketStrokePaint)
@@ -84,10 +121,14 @@ class AimOverlayView(context: Context) : View(context) {
         }
 
         if (isAimVisible) {
-            // Recalculate trajectory
+            // Compute full trajectory; pass CV-detected direction when available
             val result = engine.computeFullTrajectory(
-                cuePos, targetPos, tableBounds = tableBounds,
-                ballRadius = ballRadius, maxBounces = maxBounces, maxPathLength = 4000f
+                cuePos, targetPos,
+                aimDir = aimDirection,
+                tableBounds = tableBounds,
+                ballRadius = ballRadius,
+                maxBounces = maxBounces,
+                maxPathLength = 4000f
             )
 
             // Draw Lines
@@ -103,17 +144,24 @@ class AimOverlayView(context: Context) : View(context) {
                 canvas.drawCircle(result.objectPath[i].start.x, result.objectPath[i].start.y, 4f, bouncePaint)
             }
 
-            // Ghost Ball
+            // Ghost Ball at contact point
             if (result.cuePath.isNotEmpty()) {
                 val ce = result.cuePath[0].end
                 if (ce.distanceTo(targetPos) < ballRadius * 3f)
                     canvas.drawCircle(ce.x, ce.y, ballRadius, ghostBallPaint)
             }
-            
+
             // Pocket Hit Indicator
             if (result.pocketed && result.pocketIndex in pockets.indices) {
                 val p = pockets[result.pocketIndex]
                 canvas.drawText("✓", p.x, p.y - pocketRadius - 12f, pocketedTextPaint)
+            }
+
+            // CV Mode: draw detected ball indicators + status badge
+            if (isCvActive) {
+                canvas.drawCircle(cuePos.x, cuePos.y, ballRadius * 1.3f, cvBallPaint)
+                canvas.drawCircle(targetPos.x, targetPos.y, ballRadius * 1.3f, cvBallPaint)
+                canvas.drawText("⚡ CV", 32f, 60f, cvStatusPaint)
             }
         }
     }

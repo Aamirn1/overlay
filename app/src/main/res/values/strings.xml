@@ -8,6 +8,7 @@
     <string name="action_stop">Stop</string>
     <string name="btn_start">Start Overlay Service</string>
     <string name="btn_stop">Stop Overlay Service</string>
+    <string name="btn_start_cv">⚡ Start CV Mode (Live Auto-Detect)</string>
     <string name="btn_permission">Grant Overlay Permission</string>
     <string name="status_active">Overlay is running</string>
     <string name="status_inactive">Overlay is stopped</string>

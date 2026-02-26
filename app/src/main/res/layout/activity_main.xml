@@ -80,6 +80,17 @@
             android:textColor="#FF000000" />
 
         <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStartCv"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="@string/btn_start_cv"
+            android:textSize="16sp"
+            android:layout_marginBottom="12dp"
+            app:cornerRadius="14dp"
+            app:backgroundTint="#FF00C853"
+            android:textColor="#FF000000" />
+
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnStop"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="match_parent"
@@ -207,7 +218,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="1. Tap Start to launch the overlay\n2. Open 8 Ball Pool\n3. Tap ⚙ on the floating bar to enter Setup Mode\n4. Drag corners to align with the table rails\n5. Tap ⚙ again to lock boundaries\n6. Tap 🎯 to toggle aim lines\n7. Drag the white marker to your cue ball\n8. Drag the red marker to the target ball\n9. The trajectory and bank shots will appear!"
+                    android:text="⚡ CV Mode (Auto-detect):\n1. Tap START CV MODE\n2. Allow screen capture in the OS dialog\n3. Switch to 8 Ball Pool — lines update automatically!\n\n🎯 Manual Mode (Fallback):\n1. Tap Start Overlay\n2. Open 8 Ball Pool, use ⚙ to set table corners\n3. Use 🎯 to show aim lines\n4. Drag white/red markers to balls"
                     android:textSize="13sp"
                     android:textColor="#B0FFFFFF"
                     android:lineSpacingExtra="4dp" />
