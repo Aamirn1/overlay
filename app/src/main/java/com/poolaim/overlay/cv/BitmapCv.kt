@@ -22,15 +22,15 @@ import kotlin.math.max
 object BitmapCv {
 
     // ── Colour thresholds ──────────────────────────────────────────────────── //
-    private const val WHITE_THRESH = 210          // R,G,B all above this → white
-    private const val WHITE_DIFF   = 25           // max channel difference for white
-    private const val GREEN_G_MIN  = 100          // felt green: G dominates
-    private const val GREEN_RATIO  = 1.3f         // G / max(R,B) > this
+    private const val WHITE_THRESH = 175          // Lowered from 210 to catch dimmer lines
+    private const val WHITE_DIFF   = 35           // Increased from 25 for broader tolerance
+    private const val GREEN_G_MIN  = 90           // Slightly more sensitive
+    private const val GREEN_RATIO  = 1.25f        // Slightly more sensitive
 
     // ── Sampling ──────────────────────────────────────────────────────────── //
-    private const val BALL_SCAN_STEP = 4          // pixel stride for ball search
-    private const val LINE_SCAN_STEP = 2          // pixel stride for line detection
-    private const val CLUSTER_RADIUS = 8          // px — radius to accumulate votes
+    private const val BALL_SCAN_STEP = 2          // Increased density (was 4)
+    private const val LINE_SCAN_STEP = 2
+    private const val CLUSTER_RADIUS = 8
 
     // ─────────────────────────────────────────────────────────────────────── //
 
@@ -67,8 +67,8 @@ object BitmapCv {
 
         val tableCenterX = (l + r) / 2f
         val tableCenterY = (t + b) / 2f
-        val logoWidth = (r - l) * 0.25f  // Reject center 25% of table
-        val logoHeight = (b - t) * 0.25f
+        val logoWidth = (r - l) * 0.15f  // Reduced from 0.25f to be more permissive
+        val logoHeight = (b - t) * 0.12f // Reduced from 0.25f
 
         // Accumulation grid of cell size CLUSTER_RADIUS
         val cellW = (r - l) / CLUSTER_RADIUS + 1
@@ -111,7 +111,9 @@ object BitmapCv {
                     val w_ = votes[cy * cellW + (cx - 1)]
 
                     // Circular clusters have roughly equal neighbor votes
-                    val symmetry = 1f / (1f + abs(n - s) + abs(e - w_))
+                    // More lenient symmetry: 1 / (1 + sum of weighted diffs)
+                    val diff = abs(n - s) + abs(e - w_)
+                    val symmetry = 2.0f / (2.0f + diff)
                     val weight = v * symmetry
 
                     if (weight > bestWeight) {
@@ -123,7 +125,7 @@ object BitmapCv {
             }
         }
 
-        return if (bestWeight > 0.5f) Vec2(bestPx, bestPy) else null
+        return if (bestWeight > 1.0f) Vec2(bestPx, bestPy) else null
     }
 
     // ── Aim line detection ────────────────────────────────────────────────── //
@@ -143,18 +145,18 @@ object BitmapCv {
         val cx = cueBall.x; val cy = cueBall.y
         val maxRayLen = max(r - l, b - t).toFloat()
 
-        var bestLen = 20f     // minimum line length (px) to count
+        var bestLen = 30f     // Increased from 20 to avoid noise
         var bestDir = Vec2.ZERO
 
-        // 36 directions × 5° each
-        for (angle in 0 until 36) {
-            val rad = Math.toRadians(angle * 5.0)
+        // 180 directions × 2° each (increased density)
+        for (angleIdx in 0 until 180) {
+            val rad = Math.toRadians(angleIdx * 2.0)
             val dx = Math.cos(rad).toFloat()
             val dy = Math.sin(rad).toFloat()
 
             var runLen = 0f
             var inRun = false
-            var step = 20f          // start sampling 20 px ahead of the ball
+            var step = 15f          // start slightly closer (was 20)
 
             while (step < maxRayLen) {
                 val sx = (cx + dx * step).toInt()

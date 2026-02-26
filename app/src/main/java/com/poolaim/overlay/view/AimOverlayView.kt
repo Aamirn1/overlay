@@ -166,10 +166,12 @@ class AimOverlayView(context: Context) : View(context) {
                     canvas.drawCircle(targetPos.x, targetPos.y, ballRadius * 1.3f, cvBallPaint)
                     canvas.drawText("⚡ CV ACTIVE", 32f, 70f, cvStatusPaint)
                 } else {
-                    // Draw searching in smaller/dimmer text
-                    cvStatusPaint.alpha = 0xA0
+                    // Pulse alpha over time for "SEARCHING" effect
+                    val pulse = (System.currentTimeMillis() % 1000) / 1000f
+                    cvStatusPaint.alpha = (100 + pulse * 155).toInt()
                     canvas.drawText("⚡ SEARCHING...", 32f, 70f, cvStatusPaint)
-                    cvStatusPaint.alpha = 0xFF
+                    cvStatusPaint.alpha = 255
+                    invalidate() // keep pulsing
                 }
             }
         }
